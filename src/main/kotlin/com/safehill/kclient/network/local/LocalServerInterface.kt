@@ -1,6 +1,7 @@
 package com.safehill.kclient.network.local
 
 import com.safehill.kclient.models.assets.AssetDescriptor
+import com.safehill.kclient.models.assets.EncryptedAsset
 import com.safehill.kclient.models.dtos.ConversationThreadAssetsDTO
 import com.safehill.kclient.models.dtos.ConversationThreadOutputDTO
 import com.safehill.kclient.models.dtos.MessageOutputDTO
@@ -34,6 +35,12 @@ interface LocalServerInterface : SafehillApi {
     suspend fun addThreadAssets(
         threadId: String,
         conversationThreadAssetsDTO: ConversationThreadAssetsDTO
+    )
+
+    fun create(
+        assets: List<EncryptedAsset>,
+        groupId: Map<GlobalIdentifier, AssetDescriptor>,
+        filterVersions: AssetDescriptor.UploadState
     )
 
 }

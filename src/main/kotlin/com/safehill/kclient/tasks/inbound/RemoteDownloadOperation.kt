@@ -10,6 +10,28 @@ import com.safehill.kclient.models.users.ServerUser
 import com.safehill.kclient.models.users.UserIdentifier
 import com.safehill.kclient.network.ServerProxy
 
+interface AssetActivityRestorationDelegate {
+    // Notify the delegate that the restoration started.
+    fun didStartRestoration()
+
+    // Let the delegate know that a queue item representing a successful UPLOAD needs to be retrieved or re-created in the queue.
+    // The item - in fact - might not exist in the queue if:
+    // - the user logged out and the queues were cleaned
+    // - the user is on another device
+    fun restoreUploadQueueItems(forLocalIdentifiers: List<String>, groupId: String)
+
+    // Let the delegate know that a queue item representing a successful SHARE needs to be retrieved or re-created in the queue.
+    // The item - in fact - might not exist in the queue if:
+    // - the user logged out and the queues were cleaned
+    // - the user is on another device
+    fun restoreShareQueueItems(forLocalIdentifiers: List<String>, groupId: String)
+
+    // Notify the delegate that the restoration was completed.
+    // This can be used as a signal to update all the threads, so the list of user identifiers
+    // involved in the restoration of the upload/share requests is provided.
+    fun didCompleteRestoration(userIdsInvolvedInRestoration: List<String>)
+}
+
 class RemoteDownloadOperation(
     val serverProxy: ServerProxy,
     override val listeners: List<DownloadOperationListener>,
