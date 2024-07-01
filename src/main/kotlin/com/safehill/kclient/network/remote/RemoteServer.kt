@@ -15,8 +15,10 @@ import com.safehill.kclient.models.assets.AssetDescriptorUploadState
 import com.safehill.kclient.models.assets.AssetGlobalIdentifier
 import com.safehill.kclient.models.assets.AssetQuality
 import com.safehill.kclient.models.assets.EncryptedAsset
+import com.safehill.kclient.models.assets.EncryptedAssetVersion
 import com.safehill.kclient.models.assets.GroupId
 import com.safehill.kclient.models.assets.ShareableEncryptedAsset
+import com.safehill.kclient.models.dtos.AssetDeleteCriteriaDTO
 import com.safehill.kclient.models.dtos.AssetDescriptorDTO
 import com.safehill.kclient.models.dtos.AssetDescriptorFilterCriteriaDTO
 import com.safehill.kclient.models.dtos.AssetOutputDTO
@@ -58,6 +60,11 @@ import com.safehill.kclient.network.exceptions.SafehillError
 import com.safehill.kcrypto.SafehillCypher
 import com.safehill.kcrypto.models.RemoteCryptoUser
 import com.safehill.kcrypto.models.ShareablePayload
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
@@ -511,7 +518,48 @@ class RemoteServer(
         asset: EncryptedAsset,
         filterVersions: List<AssetQuality>,
     ) {
-        TODO("Not yet implemented")
+        val encryptedVersionByPresignedURL = emptyMap<String, EncryptedAssetVersion>().toMutableMap()
+
+        for (encryptedVersion in asset.encryptedVersions.values) {
+            if (!filterVersions.contains(encryptedVersion.quality)) {
+                continue
+            }
+
+            try {
+                val serverAssetVersion = serverAsset.versions.first {
+                    version -> version.versionName == encryptedVersion.quality.name
+                }
+                serverAssetVersion.presignedURL?.let {
+                    encryptedVersionByPresignedURL[it] = encryptedVersion
+                    S3Proxy.upload(encryptedVersion.encryptedData, it)
+                    this.markAsset(
+                        asset.globalIdentifier,
+                        encryptedVersion.quality,
+                        AssetDescriptorUploadState.Completed
+                    )
+                }
+            } catch (_: NoSuchElementException) {
+                println("no server asset provided for version ${encryptedVersion.quality.value}")
+                continue
+            }
+        }
+
+        val remoteServer = this
+        val coroutineScope = CoroutineScope(Job() + Dispatchers.IO)
+        val deferredResults = encryptedVersionByPresignedURL.map { kv ->
+            coroutineScope.async {
+                val presignedURL = kv.key
+                val encryptedVersion = kv.value
+                S3Proxy.upload(encryptedVersion.encryptedData, presignedURL)
+                remoteServer.markAsset(
+                    asset.globalIdentifier,
+                    encryptedVersion.quality,
+                    AssetDescriptorUploadState.Completed
+                )
+            }
+        }
+        deferredResults
+            .awaitAll()
     }
 
     override suspend fun markAsset(
@@ -519,7 +567,16 @@ class RemoteServer(
         quality: AssetQuality,
         asState: AssetDescriptorUploadState,
     ) {
-        TODO("Not yet implemented")
+        val bearerToken =
+            this.requestor.authToken ?: throw HttpException(
+                401,
+                "unauthorized"
+            )
+
+        "assets/$assetGlobalIdentifier/versions/${quality.value}/uploaded".httpPost()
+            .header(mapOf("Authorization" to "Bearer $bearerToken"))
+            .response()
+            .getOrThrow()
     }
 
     @Throws
@@ -531,7 +588,7 @@ class RemoteServer(
             .header(mapOf("Authorization" to "Bearer $bearerToken"))
             .body(
                 Gson().toJson(
-                    com.safehill.kclient.models.dtos.AssetDeleteCriteriaDTO(
+                    AssetDeleteCriteriaDTO(
                         globalIdentifiers
                     )
                 )
